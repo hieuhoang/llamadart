@@ -42,6 +42,23 @@ import '../../../support/synthetic_decision_head.dart';
 import '../../../support/synthetic_embedding_gguf.dart';
 
 void main() {
+  test('staged image loading rejects non-Android before model IO', () {
+    final service = LlamaCppService(isAndroid: false);
+    expect(
+      () => service.loadModel(
+        '/missing.gguf',
+        const ModelParams(stagedMultimodal: true),
+      ),
+      throwsA(
+        isA<LlamaUnsupportedException>().having(
+          (error) => error.message,
+          'reason',
+          contains('only on Android'),
+        ),
+      ),
+    );
+  });
+
   group('recurrent rollback reservation policy', () {
     for (final (isRecurrent, isHybrid) in [
       (false, false),

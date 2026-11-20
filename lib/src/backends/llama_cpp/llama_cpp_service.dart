@@ -66,6 +66,7 @@ part 'multimodal_embedding.dart';
 part 'native_signatures.dart';
 part 'reranking.dart';
 part 'startup_diagnostics.dart';
+part 'staged_multimodal.dart';
 
 const _llamadartWrapperAssetId = 'package:llamadart/llamadart_wrapper';
 final int _nativeStatusException =
@@ -682,6 +683,7 @@ class LlamaCppService {
   // Mapping: modelHandle -> mtmdContextHandle
   final Map<int, int> _modelToMtmd = {};
   final Map<int, Pointer<mtmd_context>> _mtmdContexts = {};
+  final Set<int> _stagedProjectors = {};
   final Map<int, bool> _modelToMtmdUseGpu = {};
 
   final Map<int, _DecisionHead> _decisionHeads = <int, _DecisionHead>{};
@@ -1793,6 +1795,11 @@ class LlamaCppService {
   /// Returns a handle to the loaded model.
   /// Throws an [Exception] if the file does not exist or fails to load.
   int loadModel(String modelPath, ModelParams modelParams) {
+    if (modelParams.stagedMultimodal && !_isAndroid) {
+      throw LlamaUnsupportedException(
+        'Staged image processing is available only on Android llama.cpp.',
+      );
+    }
     if (modelParams.gpuMemoryFit != null) {
       modelParams.validate();
     }
@@ -4495,32 +4502,30 @@ class LlamaCppService {
     _freeDecisionHeadsWhere((head) => head.modelHandle == modelHandle);
     final model = _models.remove(modelHandle);
     _modelToMtmdUseGpu.remove(modelHandle);
-    if (model != null) {
-      final contextsToRemove = _contextToModel.entries
-          .where((e) => e.value == modelHandle)
-          .map((e) => e.key)
-          .toList();
-      for (final ctxHandle in contextsToRemove) {
-        _freeContext(ctxHandle);
-      }
-      final adapters = _loraAdapters.remove(modelHandle);
-      adapters?.values.forEach((a) => a.dispose());
-
-      // Free associated multimodal context
-      final mmHandle = _modelToMtmd.remove(modelHandle);
-      if (mmHandle != null) {
-        if (_activeAsrStreamSession?.mmContextHandle == mmHandle) {
-          cancelAsrStream(_activeAsrStreamSession!.sessionId);
-          _closeAsrSession(_activeAsrStreamSession!);
-        }
-        _mtmdProjectorPaths.remove(mmHandle);
-        _mtmdProjectorTypes.remove(mmHandle);
-        final mmCtx = _mtmdContexts.remove(mmHandle);
-        if (mmCtx != null) _mtmdFree(mmCtx);
-      }
-
-      model.dispose();
+    final contextsToRemove = _contextToModel.entries
+        .where((e) => e.value == modelHandle)
+        .map((e) => e.key)
+        .toList();
+    for (final ctxHandle in contextsToRemove) {
+      _freeContext(ctxHandle);
     }
+    final adapters = _loraAdapters.remove(modelHandle);
+    adapters?.values.forEach((a) => a.dispose());
+
+    // Free associated multimodal context
+    final mmHandle = _modelToMtmd.remove(modelHandle);
+    if (mmHandle != null) {
+      _stagedProjectors.remove(mmHandle);
+      if (_activeAsrStreamSession?.mmContextHandle == mmHandle) {
+        cancelAsrStream(_activeAsrStreamSession!.sessionId);
+        _closeAsrSession(_activeAsrStreamSession!);
+      }
+      _mtmdProjectorPaths.remove(mmHandle);
+      _mtmdProjectorTypes.remove(mmHandle);
+      final mmCtx = _mtmdContexts.remove(mmHandle);
+      if (mmCtx != null) _mtmdFree(mmCtx);
+    }
+    model?.dispose();
 
     _modelResolvedBackends.remove(modelHandle);
     _modelArchitectures.remove(modelHandle);
@@ -5528,9 +5533,16 @@ class LlamaCppService {
 
     try {
       final modelHandle = _contextToModel[contextHandle]!;
-      final model = _models[modelHandle]!;
+      final mmHandle = _modelToMtmd[modelHandle];
+      final mediaParts =
+          parts
+              ?.where(
+                (part) =>
+                    part is LlamaImageContent || part is LlamaAudioContent,
+              )
+              .toList() ??
+          const <LlamaContentPart>[];
       final modelParams = _contextParams[contextHandle]!;
-      final vocab = llama_model_get_vocab(model.pointer);
       final hasMediaParts =
           parts?.any((p) => p is LlamaImageContent || p is LlamaAudioContent) ??
           false;
@@ -5588,6 +5600,33 @@ class LlamaCppService {
       final reasoningBudgetApi = thinkingBudgetConfig == null
           ? null
           : _resolveReasoningBudgetApi();
+      _StagedPrompt? stagedPrompt;
+      if (mmHandle != null &&
+          _stagedProjectors.contains(mmHandle) &&
+          mediaParts.isNotEmpty) {
+        _checkStagedMedia(mediaParts);
+        try {
+          stagedPrompt = _stageMultimodalPrompt(
+            contextHandle,
+            modelHandle,
+            mmHandle,
+            prompt,
+            mediaParts,
+            chatMediaMarker,
+            Pointer<Int8>.fromAddress(cancelTokenAddress),
+          );
+        } on _StagedCancelled {
+          return;
+        }
+        ctx = _contexts[contextHandle];
+        if (ctx == null) {
+          throw LlamaStateException(
+            'The model could not be restored after media preparation.',
+          );
+        }
+      }
+      final model = _models[modelHandle]!;
+      final vocab = llama_model_get_vocab(model.pointer);
       // 1. Reset Context
       ctx = _resetContext(
         contextHandle,
@@ -5669,32 +5708,40 @@ class LlamaCppService {
         nPast: initialTokens,
         :promptTokenCount,
         :evaluatedPromptTokens,
-      ) = _ingestPrompt(
-        contextHandle,
-        modelHandle,
-        ctx,
-        batch,
-        vocab,
-        prompt,
-        parts,
-        tokensPtr,
-        nCtx,
-        modelParams,
-        chatMediaMarker: chatMediaMarker,
-        allowTextPromptReuse:
-            speculativeConfig == null &&
-            !hasMediaParts &&
-            params.reusePromptPrefix,
-        speculativeSession: speculativeSession,
-        speculativeApi: speculativeApi,
-        speculativeConfig: speculativeConfig,
-        cancelToken: Pointer<Int8>.fromAddress(cancelTokenAddress),
-      );
+      ) = stagedPrompt == null
+          ? _ingestPrompt(
+              contextHandle,
+              modelHandle,
+              ctx,
+              batch,
+              vocab,
+              prompt,
+              parts,
+              tokensPtr,
+              nCtx,
+              modelParams,
+              chatMediaMarker: chatMediaMarker,
+              allowTextPromptReuse:
+                  speculativeConfig == null &&
+                  !hasMediaParts &&
+                  params.reusePromptPrefix,
+              speculativeSession: speculativeSession,
+              speculativeApi: speculativeApi,
+              speculativeConfig: speculativeConfig,
+              cancelToken: Pointer<Int8>.fromAddress(cancelTokenAddress),
+            )
+          : _ingestStagedPrompt(
+              ctx,
+              stagedPrompt,
+              modelParams.n_batch,
+              Pointer<Int8>.fromAddress(cancelTokenAddress),
+            );
       promptEvalStopwatch.stop();
       ctx.lastPerfPromptEvalMs =
           promptEvalStopwatch.elapsedMicroseconds / 1000.0;
       ctx.lastPerfPromptEvalTokens = evaluatedPromptTokens;
 
+      if (Pointer<Int8>.fromAddress(cancelTokenAddress).value != 0) return;
       _ensureLogitsAvailableAfterPromptEval(ctx.pointer);
       if (speculativeSession != nullptr &&
           !speculativeApi!.begin(
@@ -9008,6 +9055,7 @@ class LlamaCppService {
       _mtmdFree(m);
     }
     _mtmdContexts.clear();
+    _stagedProjectors.clear();
     _mtmdProjectorPaths.clear();
     _mtmdProjectorTypes.clear();
     _modelToMtmd.clear();
@@ -9047,6 +9095,21 @@ class LlamaCppService {
       throw LlamaModelException('Multimodal projector file not found.');
     }
     _applyConfiguredLogLevel();
+
+    if (_modelLoadParams[modelHandle]?.stagedMultimodal == true) {
+      if (!_isAndroid ||
+          _calls.mixedBatch == null ||
+          _mtmdExitTeardown == null) {
+        throw LlamaUnsupportedException(
+          'Staged media requires Android and the guarded native mixed-batch API.',
+        );
+      }
+      final handle = _getHandle();
+      _stagedProjectors.add(handle);
+      _modelToMtmd[modelHandle] = handle;
+      _mtmdProjectorPaths[handle] = mmProjPath;
+      return handle;
+    }
 
     final mmProjPathPtr = mmProjPath.toNativeUtf8();
     Pointer<mtmd_context> mmCtx = nullptr;
@@ -9134,11 +9197,12 @@ class LlamaCppService {
     }
     _mtmdProjectorPaths.remove(mmContextHandle);
     _mtmdProjectorTypes.remove(mmContextHandle);
+    _stagedProjectors.remove(mmContextHandle);
     final mmCtx = _mtmdContexts.remove(mmContextHandle);
     if (mmCtx != null) {
       _mtmdFree(mmCtx);
-      _modelToMtmd.removeWhere((k, v) => v == mmContextHandle);
     }
+    _modelToMtmd.removeWhere((k, v) => v == mmContextHandle);
   }
 
   Pointer<Char> _mtmdDefaultMarker() {
@@ -9935,6 +9999,11 @@ class LlamaCppService {
 
   /// Returns whether the active multimodal projector supports vision input.
   bool supportsVision(int mmContextHandle) {
+    if (_stagedProjectors.contains(mmContextHandle)) {
+      throw LlamaUnsupportedException(
+        'Staged projector vision capability is checked during media preparation.',
+      );
+    }
     final mmCtx = _mtmdContexts[mmContextHandle];
     if (mmCtx == null ||
         _projectorHasQwen35VulkanRestriction(mmContextHandle)) {
@@ -9948,6 +10017,11 @@ class LlamaCppService {
 
   /// Returns whether the active multimodal projector supports audio input.
   bool supportsAudio(int mmContextHandle) {
+    if (_stagedProjectors.contains(mmContextHandle)) {
+      throw LlamaUnsupportedException(
+        'Staged projector audio capability is checked during media preparation.',
+      );
+    }
     final mmCtx = _mtmdContexts[mmContextHandle];
     if (mmCtx == null ||
         _projectorHasQwen35VulkanRestriction(mmContextHandle)) {

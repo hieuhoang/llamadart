@@ -53,6 +53,10 @@ speculative strategies before offering them.
   under-report it. The
   `engine.supportsVision` and `engine.supportsAudio` getters report the same
   values as `capabilities`.
+- This fork's experimental Android `ModelParams(stagedMultimodal: true)` does
+  not load its projector until an image request and capability probes report
+  no support. The request checks the projector; audio and noncausal image
+  chunks are unsupported. Disable the option for conventional media handling.
 - Always check before sending media to a GGUF model. With no projector loaded,
   image or audio parts throw `LlamaUnsupportedException` on llama.cpp, native
   and WebGPU; on native so does input the loaded projector cannot encode.

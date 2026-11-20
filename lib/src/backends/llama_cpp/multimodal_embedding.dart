@@ -184,8 +184,9 @@ extension NativeContentEmbeddings on LlamaCppService {
   _PreparedEmbedding _prepareEmbedding(
     LlamaEmbeddingInput input,
     Pointer<mtmd_context> projector,
-    Pointer<llama_vocab> vocab,
-  ) {
+    Pointer<llama_vocab> vocab, {
+    bool? addSpecial,
+  }) {
     final item = _PreparedEmbedding(
       freeChunks: _embeddingChunksFree ?? _mtmdInputChunksFree,
       freeBitmap: _embeddingBitmapFree ?? _mtmdBitmapFree,
@@ -218,7 +219,7 @@ extension NativeContentEmbeddings on LlamaCppService {
         nativeText.ref
           ..text = text.toNativeUtf8(allocator: arena).cast()
           ..text_len = utf8.encode(text).length
-          ..add_special = _embeddingAddsSpecial(vocab, text)
+          ..add_special = addSpecial ?? _embeddingAddsSpecial(vocab, text)
           ..parse_special = true;
         final bitmaps = arena<Pointer<mtmd_bitmap>>(item.bitmaps.length);
         for (var i = 0; i < item.bitmaps.length; i++) {

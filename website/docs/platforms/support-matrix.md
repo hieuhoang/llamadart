@@ -207,7 +207,7 @@ native and web. Model architecture support depends on the pinned runtime; see
 | Incomplete tool diagnostics | LFM raw `partialToolCalls` at reported length limits | Same parser when the runtime reports a length limit | Same Dart parser at reported length limits | Unqualified: calls come from the runtime's `tool_calls` |
 | Canonical JSON Schema tools | Supported subset and selected formats | Selected formats; lazy grammars require the `lazyGrammar` runtime probe | No | No |
 | Automatic `sendWithTools` / `completeWithTools` loop | Yes | Requires reliable runtime finish reporting | Yes | `withTextHistory()` when the load's token-count probe passes (`@litert-lm/core@0.19.0`), checked in Chrome with Qwen3 0.6B on WebAssembly CPU and Gemma 4 E2B on WebGPU; otherwise throws before generation |
-| Multimodal | Image and audio with a projector | Image and audio with a projector URL | Image and audio files or bytes, when the bundle supports them | No |
+| Multimodal | Image and audio with a projector; experimental Android staged image mode separately loads projector and decoder | Image and audio with a projector URL | Image and audio files or bytes, when the bundle supports them | No |
 | Video | No | No | No | No |
 | Tool-result media | Images with a vision projector and a Hermes-style template (smoke-tested on macOS CPU and Metal with Qwen3.5-0.8B weights, a `qwen3vl_merger` projector and the Qwen3-VL template) | No | No | No |
 

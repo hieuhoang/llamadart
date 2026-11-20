@@ -18,6 +18,7 @@ List<String> modelParamsUnsupportedBy(
   LlamaRuntime.llamaCpp => [
     ..._liteRtLmOnlyFields(params),
     if (web) ...[
+      if (params.stagedMultimodal) 'stagedMultimodal',
       ..._gpuDeviceFields(params),
       if (!params.useMmap) 'useMmap=false',
       if (params.useMlock) 'useMlock',
@@ -29,6 +30,7 @@ List<String> modelParamsUnsupportedBy(
     ],
   ],
   LlamaRuntime.liteRtLm => [
+    if (params.stagedMultimodal) 'stagedMultimodal',
     if (params.contextSize <= 0) 'contextSize=${params.contextSize}',
     if (params.gpuLayers > 0 && params.gpuLayers != ModelParams.maxGpuLayers)
       'gpuLayers=${params.gpuLayers}',

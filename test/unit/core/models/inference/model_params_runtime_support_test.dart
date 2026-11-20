@@ -81,6 +81,19 @@ void main() {
     }
   });
 
+  test('staged media is rejected by web and LiteRT-LM runtimes', () {
+    const params = ModelParams(stagedMultimodal: true);
+    expect(unsupported(params, LlamaRuntime.llamaCpp, web: false), isEmpty);
+    expect(unsupported(params, LlamaRuntime.llamaCpp, web: true), [
+      'stagedMultimodal',
+    ]);
+    for (final web in [false, true]) {
+      expect(unsupported(params, LlamaRuntime.liteRtLm, web: web), [
+        'stagedMultimodal',
+      ]);
+    }
+  });
+
   group('native llama.cpp', () {
     test('rejects every liteRtLm* field and the WebGPU memory hints', () {
       expect(

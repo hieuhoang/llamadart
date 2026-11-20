@@ -63,6 +63,15 @@ Projector offload follows effective model-load configuration. If model loading
 is CPU-only (`preferredBackend: GpuBackend.cpu` or `gpuLayers: 0`), projector
 initialization also runs CPU-only.
 
+This fork offers experimental Android-only staged image inference with
+`ModelParams(stagedMultimodal: true)`. It loads projector weights on CPU
+without decoder weights, saves image-token embeddings, frees the projector and
+reloads the decoder. Media requests therefore reload the model and can be
+slower. Audio, noncausal image chunks, and projectors without M-RoPE are not
+supported in this mode. It requires a single context with no LoRA or decision
+heads. Projector capability queries report no support until the actual image
+request checks the projector. The mode has only limited device testing.
+
 `unloadModel()`, `dispose()` and a `setModel` that replaces the model release
 the projector with the model.
 `unloadMultimodalProjector()` releases only the projector and keeps the model

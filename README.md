@@ -16,6 +16,10 @@ experimental. Native targets need no network once the model is on the device.
 - Image generation from text prompts on native platforms (Preview).
 - Runtime LoRA adapters for llama.cpp, observability hooks and typed capability checks.
 
+This fork adds experimental Android-only staged image inference via
+`ModelParams(stagedMultimodal: true)`. It loads the projector on CPU separately
+from decoder weights; see the [multimodal guide](website/docs/guides/multimodal.md).
+
 Choose [direct llamadart, Genkit, or Flutter Edge AI](https://llamadart.leehack.com/docs/integrations/choosing-an-api)
 for your application. Genkit is a
 [separate package](https://github.com/leehack/llamadart/tree/main/packages/genkit_llamadart);

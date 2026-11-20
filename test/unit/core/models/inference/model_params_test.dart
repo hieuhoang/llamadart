@@ -10,6 +10,14 @@ import 'package:llamadart/src/core/models/inference/model_params.dart';
 import 'package:test/test.dart';
 
 void main() {
+  test('staged media survives llama.cpp parameter copies', () {
+    const params = LlamaCppModelParams(stagedMultimodal: true);
+    expect(params.copyWith(contextSize: 1024).stagedMultimodal, isTrue);
+    expect(params.copyWith(stagedMultimodal: false).stagedMultimodal, isFalse);
+    final ModelParams base = params;
+    expect(base.copyWith(contextSize: 2048).stagedMultimodal, isTrue);
+  });
+
   test(
     'embedding-only loading is explicit and survives model parameter copies',
     () {

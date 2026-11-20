@@ -122,6 +122,12 @@ enum LiteRtLmActivationDataType {
 /// );
 /// ```
 class ModelParams {
+  /// Encode multimodal inputs before loading decoder weights.
+  ///
+  /// Experimental Android llama.cpp image-only mode. It reloads the model for
+  /// image requests and checks projector capabilities when preparing them.
+  final bool stagedMultimodal;
+
   /// Selects LiteRT-LM's separate embedding engine for `.litertlm` bundles.
   ///
   /// Defaults to false, preserving conversation loading. A LiteRT-LM adapter
@@ -618,6 +624,7 @@ class ModelParams {
   /// Creates configuration for the model. Use [validate] to check for
   /// llama.cpp-incompatible combinations before passing to a load call.
   const ModelParams({
+    this.stagedMultimodal = false,
     @Deprecated(
       'Use LiteRtLmModelParams(embeddingEngine: ...). This will be removed in '
       '1.0.',
@@ -691,7 +698,8 @@ class ModelParams {
   });
 
   ModelParams._copy(ModelParams other)
-    : liteRtLmEmbeddingEngine = other.liteRtLmEmbeddingEngine,
+    : stagedMultimodal = other.stagedMultimodal,
+      liteRtLmEmbeddingEngine = other.liteRtLmEmbeddingEngine,
       contextSize = other.contextSize,
       device = other.device,
       gpuLayers = other.gpuLayers,
@@ -1044,6 +1052,7 @@ class ModelParams {
   /// `clear*: true` flag. Without the sentinel, `null` would be
   /// indistinguishable from "argument omitted, keep current value".
   ModelParams copyWith({
+    bool? stagedMultimodal,
     @Deprecated(
       'Use LiteRtLmModelParams.copyWith(embeddingEngine: ...). This will be removed in '
       '1.0.',
@@ -1155,6 +1164,7 @@ class ModelParams {
     bool clearModelBytesHint = false,
   }) {
     return ModelParams(
+      stagedMultimodal: stagedMultimodal ?? this.stagedMultimodal,
       liteRtLmEmbeddingEngine:
           liteRtLmEmbeddingEngine ?? this.liteRtLmEmbeddingEngine,
       contextSize: contextSize ?? this.contextSize,
@@ -1278,6 +1288,7 @@ final class GpuMemoryFit {
 class LlamaCppModelParams extends ModelParams {
   /// Creates llama.cpp load parameters with [ModelParams]' defaults.
   const LlamaCppModelParams({
+    super.stagedMultimodal,
     super.contextSize,
     super.device,
     super.gpuLayers,
@@ -1320,6 +1331,7 @@ class LlamaCppModelParams extends ModelParams {
   /// apply them.
   @override
   LlamaCppModelParams copyWith({
+    bool? stagedMultimodal,
     @Deprecated(
       'Use LiteRtLmModelParams.copyWith(embeddingEngine: ...). This will be '
       'removed in 1.0.',
@@ -1451,6 +1463,7 @@ class LlamaCppModelParams extends ModelParams {
     });
     return LlamaCppModelParams._copy(
       super.copyWith(
+        stagedMultimodal: stagedMultimodal,
         contextSize: contextSize,
         device: device,
         gpuLayers: gpuLayers,
@@ -1583,6 +1596,7 @@ class LiteRtLmModelParams extends ModelParams {
   /// LiteRT-LM does not apply them.
   @override
   LiteRtLmModelParams copyWith({
+    bool? stagedMultimodal,
     bool? embeddingEngine,
     LiteRtLmActivationDataType? activationDataType,
     bool clearActivationDataType = false,
@@ -1707,6 +1721,7 @@ class LiteRtLmModelParams extends ModelParams {
     bool clearModelBytesHint = false,
   }) {
     _rejectCopyArguments('LiteRtLmModelParams', 'LlamaCppModelParams', {
+      'stagedMultimodal': stagedMultimodal,
       'splitMode': splitMode,
       'mainGpu': mainGpu,
       'gpuDevices': gpuDevices,
